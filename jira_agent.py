@@ -20,6 +20,25 @@ class JiraAgentError(RuntimeError):
     pass
 
 
+class JiraHttpError(JiraAgentError):
+    def __init__(self, status: int, reason: str, body: str = ""):
+        self.status = status
+        self.reason = reason
+        self.body = body
+        detail = f"HTTP {status} {reason}"
+        if body:
+            detail = f"{detail}: {body}"
+        super().__init__(detail)
+
+
+def issue_permission_hint(issue_key: str) -> str:
+    return (
+        f"If {issue_key} exists in the browser, check that the API token belongs to "
+        "the same Atlassian account and includes Jira scopes `read:issue:jira`, "
+        "`read:project:jira`, and `read:attachment:jira`."
+    )
+
+
 def load_env_file(path: str | None = None) -> None:
     env_path = path or os.environ.get("JIRA_AGENT_MCP_ENV") or DEFAULT_ENV_FILE
     if not env_path:
@@ -74,6 +93,15 @@ def auth_header() -> str:
     return f"Basic {encoded}"
 
 
+def bearer_auth_header() -> str:
+    token = os.environ.get("ATLASSIAN_API_TOKEN")
+    if not token:
+        raise JiraAgentError(
+            "Missing auth. Set ATLASSIAN_API_TOKEN, or run init.py."
+        )
+    return f"Bearer {token}"
+
+
 def jira_request(url: str, authorization: str, accept: str = "application/json") -> bytes:
     request = Request(
         url,
@@ -89,18 +117,71 @@ def jira_request(url: str, authorization: str, accept: str = "application/json")
             return response.read()
     except HTTPError as error:
         body = error.read().decode("utf-8", errors="replace")
-        detail = f"HTTP {error.code} {error.reason}"
-        if body:
-            detail = f"{detail}: {body}"
-        raise JiraAgentError(detail) from error
+        raise JiraHttpError(error.code, error.reason, body) from error
     except URLError as error:
         raise JiraAgentError(f"Network error: {error.reason}") from error
 
 
-def read_issue(site: str, issue_key: str, authorization: str) -> dict[str, Any]:
+def site_origin(site: str) -> str:
+    parsed = urlparse(site)
+    if not parsed.scheme or not parsed.netloc:
+        raise JiraAgentError(f"Invalid Jira site URL: {site}")
+    return f"{parsed.scheme}://{parsed.netloc}"
+
+
+def discover_cloud_id(site: str, authorization: str) -> str:
+    origin = site_origin(site)
+    url = f"{origin}/_edge/tenant_info"
+    data = json.loads(jira_request(url, authorization).decode("utf-8"))
+    cloud_id = data.get("cloudId")
+    if not cloud_id:
+        raise JiraAgentError(f"Could not discover cloudId from {url}")
+    return cloud_id
+
+
+def issue_api_base(site: str, authorization: str, scoped: bool = False) -> str:
+    if not scoped:
+        return site_origin(site)
+
+    cloud_id = os.environ.get("JIRA_CLOUD_ID") or discover_cloud_id(site, authorization)
+    return f"https://api.atlassian.com/ex/jira/{cloud_id}"
+
+
+def read_issue_from_base(api_base: str, issue_key: str, authorization: str) -> dict[str, Any]:
     encoded_key = quote(issue_key, safe="")
-    url = f"{site.rstrip('/')}/rest/api/3/issue/{encoded_key}?fields=attachment,project,summary"
+    url = f"{api_base.rstrip('/')}/rest/api/3/issue/{encoded_key}?fields=attachment,project,summary"
     return json.loads(jira_request(url, authorization).decode("utf-8"))
+
+
+def read_issue(site: str, issue_key: str, authorization: str) -> tuple[dict[str, Any], str]:
+    try:
+        return (
+            read_issue_from_base(issue_api_base(site, authorization), issue_key, authorization),
+            authorization,
+        )
+    except JiraHttpError as error:
+        if error.status not in {401, 403, 404}:
+            raise
+
+        scoped_base = issue_api_base(site, authorization, scoped=True)
+        try:
+            return read_issue_from_base(scoped_base, issue_key, authorization), authorization
+        except JiraAgentError as scoped_basic_error:
+            bearer = bearer_auth_header()
+            try:
+                return read_issue_from_base(scoped_base, issue_key, bearer), bearer
+            except JiraAgentError as scoped_bearer_error:
+                scoped_error = (
+                    f"Basic auth scoped API error: {scoped_basic_error}. "
+                    f"Bearer auth scoped API error: {scoped_bearer_error}"
+                )
+
+                raise JiraAgentError(
+                    "Could not read Jira issue using either site REST API or scoped-token "
+                    f"Atlassian API route. Site REST error: {error}. "
+                    f"Scoped API error: {scoped_error}. "
+                    f"{issue_permission_hint(issue_key)}"
+                ) from scoped_bearer_error
 
 
 def safe_filename(filename: str) -> str:
@@ -138,7 +219,7 @@ def list_attachments(ticket: str, site: str | None = None) -> dict[str, Any]:
     load_env_file()
     resolved_site, issue_key = parse_ticket(ticket, site)
     authorization = auth_header()
-    issue = read_issue(resolved_site, issue_key, authorization)
+    issue, attachment_authorization = read_issue(resolved_site, issue_key, authorization)
     fields = issue.get("fields", {})
     project_key = fields.get("project", {}).get("key") or issue_key.split("-", 1)[0]
     attachments = fields.get("attachment") or []
@@ -197,10 +278,7 @@ def download_attachment(
         body = error.read().decode("utf-8", errors="replace")
         if target.exists():
             target.unlink()
-        detail = f"HTTP {error.code} {error.reason}"
-        if body:
-            detail = f"{detail}: {body}"
-        raise JiraAgentError(detail) from error
+        raise JiraHttpError(error.code, error.reason, body) from error
     except URLError as error:
         if target.exists():
             target.unlink()
@@ -218,7 +296,7 @@ def download_attachments(
     load_env_file()
     resolved_site, issue_key = parse_ticket(ticket, site)
     authorization = auth_header()
-    issue = read_issue(resolved_site, issue_key, authorization)
+    issue, attachment_authorization = read_issue(resolved_site, issue_key, authorization)
     fields = issue.get("fields", {})
     project_key = fields.get("project", {}).get("key") or issue_key.split("-", 1)[0]
     attachments = fields.get("attachment") or []
@@ -227,7 +305,12 @@ def download_attachments(
 
     downloaded = []
     for attachment in attachments:
-        path = download_attachment(attachment, directory, authorization, overwrite=overwrite)
+        path = download_attachment(
+            attachment,
+            directory,
+            attachment_authorization,
+            overwrite=overwrite,
+        )
         downloaded.append(
             {
                 "id": attachment.get("id"),

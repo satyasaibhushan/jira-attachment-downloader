@@ -82,4 +82,6 @@ Required for attachment downloads:
 - `read:issue:jira`
 - `read:project:jira`
 
+If Jira returns `404 Not Found` for an issue that opens in the browser, the token is usually valid but cannot browse that issue. Recreate or update the token with the scopes above, and make sure it belongs to the same Atlassian account that can open the ticket.
+
 The token is only read from environment variables. Do not commit it.
