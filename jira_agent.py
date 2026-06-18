@@ -13,6 +13,7 @@ from urllib.request import Request, urlopen
 
 DEFAULT_OUTPUT_ROOT = "~/Agents/Jira"
 DEFAULT_SITE = ""
+DEFAULT_ENV_FILE = "~/.jira-agent-mcp.env"
 
 
 class JiraAgentError(RuntimeError):
@@ -20,7 +21,7 @@ class JiraAgentError(RuntimeError):
 
 
 def load_env_file(path: str | None = None) -> None:
-    env_path = path or os.environ.get("JIRA_AGENT_MCP_ENV")
+    env_path = path or os.environ.get("JIRA_AGENT_MCP_ENV") or DEFAULT_ENV_FILE
     if not env_path:
         return
 
