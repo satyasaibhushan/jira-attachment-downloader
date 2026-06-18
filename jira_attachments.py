@@ -9,11 +9,11 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description="Download all attachments from a Jira ticket."
     )
-    parser.add_argument("ticket", help="Jira issue key or URL, e.g. SULF-1714")
+    parser.add_argument("ticket", help="Jira issue key or URL, e.g. PROJ-123")
     parser.add_argument(
         "--site",
         default=DEFAULT_SITE,
-        help=f"Jira site URL when passing an issue key. Default: {DEFAULT_SITE}",
+        help="Jira site URL when passing an issue key. Not needed for full Jira URLs.",
     )
     parser.add_argument(
         "--output-root",

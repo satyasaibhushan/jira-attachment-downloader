@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+from __future__ import annotations
+
 import getpass
 import json
 import os
@@ -13,7 +15,7 @@ from typing import Any
 APP_NAME = "jira-attachments"
 PROJECT_DIR = Path(__file__).resolve().parent
 MCP_SERVER = PROJECT_DIR / "mcp_server.py"
-DEFAULT_SITE = "https://vmockinc.atlassian.net"
+DEFAULT_SITE = "https://your-domain.atlassian.net"
 DEFAULT_OUTPUT_ROOT = "~/Agents/Jira"
 ENV_FILE = Path.home() / ".jira-agent-mcp.env"
 

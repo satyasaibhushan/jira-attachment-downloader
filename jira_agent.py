@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import base64
 import json
 import os
@@ -10,7 +12,7 @@ from urllib.request import Request, urlopen
 
 
 DEFAULT_OUTPUT_ROOT = "~/Agents/Jira"
-DEFAULT_SITE = "https://vmockinc.atlassian.net"
+DEFAULT_SITE = ""
 
 
 class JiraAgentError(RuntimeError):
@@ -37,7 +39,7 @@ def load_env_file(path: str | None = None) -> None:
             os.environ[key] = value
 
 
-def parse_ticket(value: str, fallback_site: str = DEFAULT_SITE) -> tuple[str, str]:
+def parse_ticket(value: str, fallback_site: str | None = None) -> tuple[str, str]:
     parsed = urlparse(value)
     if parsed.scheme and parsed.netloc:
         match = re.search(r"/browse/([A-Z][A-Z0-9]+-\d+)", parsed.path, re.IGNORECASE)
@@ -48,7 +50,14 @@ def parse_ticket(value: str, fallback_site: str = DEFAULT_SITE) -> tuple[str, st
     if not re.fullmatch(r"[A-Z][A-Z0-9]+-\d+", value, re.IGNORECASE):
         raise JiraAgentError(f"Expected a Jira issue key or ticket URL, got: {value}")
 
-    return fallback_site.rstrip("/"), value.upper()
+    site = fallback_site or os.environ.get("JIRA_DEFAULT_SITE")
+    if not site:
+        raise JiraAgentError(
+            "A Jira site is required when passing an issue key. "
+            "Use --site, pass a full ticket URL, or run init.py."
+        )
+
+    return site.rstrip("/"), value.upper()
 
 
 def auth_header() -> str:
@@ -124,7 +133,7 @@ def issue_output_dir(
     return Path(root).expanduser() / project / issue_key
 
 
-def list_attachments(ticket: str, site: str = DEFAULT_SITE) -> dict[str, Any]:
+def list_attachments(ticket: str, site: str | None = None) -> dict[str, Any]:
     load_env_file()
     resolved_site, issue_key = parse_ticket(ticket, site)
     authorization = auth_header()
@@ -201,7 +210,7 @@ def download_attachment(
 
 def download_attachments(
     ticket: str,
-    site: str = DEFAULT_SITE,
+    site: str | None = None,
     output_root: str | None = None,
     overwrite: bool = False,
 ) -> dict[str, Any]:

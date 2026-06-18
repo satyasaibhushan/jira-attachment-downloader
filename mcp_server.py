@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+from __future__ import annotations
+
 import json
 import sys
 import traceback
@@ -28,12 +30,11 @@ def tools() -> list[dict[str, Any]]:
                 "properties": {
                     "ticket": {
                         "type": "string",
-                        "description": "Jira issue key or URL, e.g. SULF-1714 or https://site/browse/SULF-1714.",
+                        "description": "Jira issue key or URL, e.g. PROJ-123 or https://your-domain.atlassian.net/browse/PROJ-123.",
                     },
                     "site": {
                         "type": "string",
-                        "description": "Jira site URL when ticket is an issue key.",
-                        "default": DEFAULT_SITE,
+                        "description": "Jira site URL when ticket is an issue key. Not needed for full Jira URLs.",
                     },
                 },
                 "required": ["ticket"],
@@ -47,12 +48,11 @@ def tools() -> list[dict[str, Any]]:
                 "properties": {
                     "ticket": {
                         "type": "string",
-                        "description": "Jira issue key or URL, e.g. SULF-1714 or https://site/browse/SULF-1714.",
+                        "description": "Jira issue key or URL, e.g. PROJ-123 or https://your-domain.atlassian.net/browse/PROJ-123.",
                     },
                     "site": {
                         "type": "string",
-                        "description": "Jira site URL when ticket is an issue key.",
-                        "default": DEFAULT_SITE,
+                        "description": "Jira site URL when ticket is an issue key. Not needed for full Jira URLs.",
                     },
                     "outputRoot": {
                         "type": "string",

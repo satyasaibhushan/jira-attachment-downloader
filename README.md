@@ -13,7 +13,7 @@ Default output layout:
 Run the setup flow:
 
 ```bash
-python3 ~/Code/Personal/jira-attachment-downloader/init.py
+python3 ./init.py
 ```
 
 It will ask for:
@@ -44,26 +44,26 @@ After setup, restart the selected apps so they reload MCP configuration.
 ## CLI
 
 ```bash
-python3 jira_attachments.py "https://vmockinc.atlassian.net/browse/SULF-1714"
+python3 jira_attachments.py "https://your-domain.atlassian.net/browse/PROJ-123"
 ```
 
 This downloads files to:
 
 ```text
-~/Agents/Jira/SULF/SULF-1714/
+~/Agents/Jira/PROJ/PROJ-123/
 ```
 
 You can also pass an issue key:
 
 ```bash
-python3 jira_attachments.py SULF-1714 --site https://vmockinc.atlassian.net
+python3 jira_attachments.py PROJ-123 --site https://your-domain.atlassian.net
 ```
 
 Use a custom destination root:
 
 ```bash
-python3 jira_attachments.py SULF-1714 \
-  --site https://vmockinc.atlassian.net \
+python3 jira_attachments.py PROJ-123 \
+  --site https://your-domain.atlassian.net \
   --output-root ~/Downloads/Jira
 ```
 
@@ -72,7 +72,7 @@ python3 jira_attachments.py SULF-1714 \
 Create a Jira API token with read scopes. You can either run `init.py`, or set these manually:
 
 ```bash
-export ATLASSIAN_EMAIL="your.email@vmock.com"
+export ATLASSIAN_EMAIL="user@example.com"
 export ATLASSIAN_API_TOKEN="your-token"
 ```
 
@@ -83,4 +83,3 @@ Required for attachment downloads:
 - `read:project:jira`
 
 The token is only read from environment variables. Do not commit it.
-# jira-attachment-downloader
