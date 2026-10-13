@@ -140,13 +140,18 @@ def main() -> int:
         if not line.strip():
             continue
 
+        # Stays None only when the line is not a JSON object; clients drop
+        # error replies whose id does not match a pending request.
+        request_id = None
         try:
             message = json.loads(line)
+            if isinstance(message, dict):
+                request_id = message.get("id")
             response = handle_request(message)
         except Exception as error:
             response = {
                 "jsonrpc": "2.0",
-                "id": None,
+                "id": request_id,
                 "error": {
                     "code": -32000,
                     "message": str(error),
