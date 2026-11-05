@@ -4,6 +4,7 @@ import base64
 import json
 import os
 import re
+import socket
 from pathlib import Path
 from typing import Any
 from urllib.error import HTTPError, URLError
@@ -14,6 +15,13 @@ from urllib.request import Request, urlopen
 DEFAULT_OUTPUT_ROOT = "~/Agents/Jira"
 DEFAULT_SITE = ""
 DEFAULT_ENV_FILE = "~/.jira-agent-mcp.env"
+
+# urllib applies one socket timeout to connect and to each read, so these bound
+# how long Jira may stay silent, not a request's total time. Metadata calls
+# normally finish in about a second. Downloads get a longer silence budget so a
+# slow but flowing large attachment still completes.
+METADATA_TIMEOUT_SECONDS = 30
+DOWNLOAD_IDLE_TIMEOUT_SECONDS = 120
 
 
 class JiraAgentError(RuntimeError):
@@ -29,6 +37,20 @@ class JiraHttpError(JiraAgentError):
         if body:
             detail = f"{detail}: {body}"
         super().__init__(detail)
+
+
+class JiraTimeoutError(JiraAgentError):
+    pass
+
+
+def is_timeout(error: BaseException) -> bool:
+    if isinstance(error, socket.timeout):
+        return True
+    return isinstance(error, URLError) and isinstance(error.reason, socket.timeout)
+
+
+def timeout_error(url: str, seconds: int) -> JiraTimeoutError:
+    return JiraTimeoutError(f"No response from Jira for {seconds}s, gave up on {url}")
 
 
 def issue_permission_hint(issue_key: str) -> str:
@@ -113,12 +135,14 @@ def jira_request(url: str, authorization: str, accept: str = "application/json")
     )
 
     try:
-        with urlopen(request) as response:
+        with urlopen(request, timeout=METADATA_TIMEOUT_SECONDS) as response:
             return response.read()
     except HTTPError as error:
         body = error.read().decode("utf-8", errors="replace")
         raise JiraHttpError(error.code, error.reason, body) from error
-    except URLError as error:
+    except (URLError, socket.timeout) as error:
+        if is_timeout(error):
+            raise timeout_error(url, METADATA_TIMEOUT_SECONDS) from error
         raise JiraAgentError(f"Network error: {error.reason}") from error
 
 
@@ -166,10 +190,16 @@ def read_issue(site: str, issue_key: str, authorization: str) -> tuple[dict[str,
         scoped_base = issue_api_base(site, authorization, scoped=True)
         try:
             return read_issue_from_base(scoped_base, issue_key, authorization), authorization
+        except JiraTimeoutError:
+            # A silent Jira is not an auth problem; retrying another route
+            # only multiplies the wait.
+            raise
         except JiraAgentError as scoped_basic_error:
             bearer = bearer_auth_header()
             try:
                 return read_issue_from_base(scoped_base, issue_key, bearer), bearer
+            except JiraTimeoutError:
+                raise
             except JiraAgentError as scoped_bearer_error:
                 scoped_error = (
                     f"Basic auth scoped API error: {scoped_basic_error}. "
@@ -268,7 +298,7 @@ def download_attachment(
     )
 
     try:
-        with urlopen(request) as response, target.open("wb") as file:
+        with urlopen(request, timeout=DOWNLOAD_IDLE_TIMEOUT_SECONDS) as response, target.open("wb") as file:
             while True:
                 chunk = response.read(1024 * 1024)
                 if not chunk:
@@ -279,9 +309,11 @@ def download_attachment(
         if target.exists():
             target.unlink()
         raise JiraHttpError(error.code, error.reason, body) from error
-    except URLError as error:
+    except (URLError, socket.timeout) as error:
         if target.exists():
             target.unlink()
+        if is_timeout(error):
+            raise timeout_error(content_url, DOWNLOAD_IDLE_TIMEOUT_SECONDS) from error
         raise JiraAgentError(f"Network error: {error.reason}") from error
 
     return target
